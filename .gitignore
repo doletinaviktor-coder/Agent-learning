@@ -1,0 +1,17 @@
+# Secrets — NIKDY necommituj
+.env
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Databáza s konverzáciami
+conversations.db
+
+# Logy bežiacich procesov
+*.log
+
+# OS
+.DS_Store
