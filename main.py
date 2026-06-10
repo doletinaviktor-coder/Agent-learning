@@ -71,9 +71,13 @@ async def receive(request: Request):
         # Neznámy formát (napr. obrázok/audio) — pre v1 ignorujeme.
         return {"status": "ignored"}
 
+    print(f"[in]  {from_number}: {user_text}")
+
     # Zavoláme agenta. (Blokujúce volanie Claude beží v FastAPI threadpoole,
     # takže event loop neblokuje — pre učebnú verziu úplne v poriadku.)
     answer = agent.reply(from_number, user_text)
+
+    print(f"[out] {from_number}: {answer}")
 
     # Pošleme odpoveď späť cez Meta Graph API.
     _send_whatsapp_message(from_number, answer)
