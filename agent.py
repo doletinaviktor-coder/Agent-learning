@@ -11,7 +11,8 @@ from datetime import datetime
 from dotenv import load_dotenv
 from anthropic import Anthropic
 
-import db  # perzistentná pamäť konverzácie (SQLite)
+import db   # perzistentná pamäť konverzácie (SQLite)
+import ga4  # Google Analytics 4 Data API
 
 load_dotenv()  # načíta premenné z .env súboru
 db.init_db()   # pripraví databázu (vytvorí tabuľku, ak treba)
@@ -81,15 +82,99 @@ TOOLS = [
         ),
         # Tento nástroj nepotrebuje žiadne vstupy → prázdne properties.
         "input_schema": {"type": "object", "properties": {}, "required": []},
-    }
+    },
+    {
+        "name": "ga4_list_properties",
+        "description": (
+            "Vylistuje Google Analytics 4 property, ku ktorým má agent prístup "
+            "(názov + ID). Použi, keď user nešpecifikoval konkrétny web/property, "
+            "alebo keď potrebuješ zistiť property ID predtým, než zavoláš get_ga4_metrics."
+        ),
+        "input_schema": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "name": "ga4_run_report",
+        "description": (
+            "Flexibilný Google Analytics 4 report — vytiahne ľubovoľné GA4 metriky "
+            "(voliteľne rozpadnuté podľa dimenzií) za zadané obdobie, voliteľne s "
+            "medziročným (YoY) porovnaním. Ak nepoznáš property_id, najprv zavolaj "
+            "ga4_list_properties.\n\n"
+            "Časté METRIKY: sessions, totalUsers, activeUsers, newUsers, "
+            "screenPageViews, eventCount, keyEvents, conversions, purchaseRevenue, "
+            "totalRevenue, transactions, ecommercePurchases, averagePurchaseRevenue, "
+            "bounceRate, engagementRate, averageSessionDuration.\n"
+            "Časté DIMENZIE: date, country, deviceCategory, "
+            "sessionDefaultChannelGroup, sessionSource, sessionMedium, "
+            "sessionSourceMedium, pagePath, pageTitle, landingPage, newVsReturning, "
+            "itemName.\n"
+            "Obrat/tržby = purchaseRevenue (alebo totalRevenue). Pre YoY daj "
+            "compare_yoy=true."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "property_id": {
+                    "type": "string",
+                    "description": "Číselné ID GA4 property (z ga4_list_properties).",
+                },
+                "metrics": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "GA4 metriky, napr. ['sessions','purchaseRevenue'].",
+                },
+                "dimensions": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Voliteľný rozpad, napr. ['country'] alebo ['sessionDefaultChannelGroup'].",
+                },
+                "start_date": {
+                    "type": "string",
+                    "description": "Začiatok: 'YYYY-MM-DD' alebo 'NdaysAgo'/'today'/'yesterday'. Default '30daysAgo'.",
+                },
+                "end_date": {
+                    "type": "string",
+                    "description": "Koniec obdobia. Default 'today'.",
+                },
+                "compare_yoy": {
+                    "type": "boolean",
+                    "description": "Ak true, porovná s rovnakým obdobím pred rokom (YoY).",
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Max počet riadkov pri dimenziách. Default 25.",
+                },
+            },
+            "required": ["metrics"],
+        },
+    },
 ]
 
 
 def _run_tool(name: str, tool_input: dict) -> str:
-    """Vykoná nástroj podľa mena a vráti výsledok ako text."""
-    if name == "get_current_time":
-        return datetime.now().strftime("Dnes je %d.%m.%Y, %H:%M:%S")
-    return f"Neznámy nástroj: {name}"
+    """Vykoná nástroj podľa mena a vráti výsledok ako text.
+
+    Celé je v try/except — keď nástroj zlyhá (napr. GA4 API vráti chybu),
+    vrátime chybový text ako výsledok, nech sa agent nezosype. Claude potom
+    userovi povie, že sa niečo nepodarilo.
+    """
+    try:
+        if name == "get_current_time":
+            return datetime.now().strftime("Dnes je %d.%m.%Y, %H:%M:%S")
+        if name == "ga4_list_properties":
+            return ga4.list_properties()
+        if name == "ga4_run_report":
+            return ga4.run_report(
+                metrics=tool_input.get("metrics", []),
+                dimensions=tool_input.get("dimensions"),
+                start_date=tool_input.get("start_date", "30daysAgo"),
+                end_date=tool_input.get("end_date", "today"),
+                property_id=tool_input.get("property_id"),
+                limit=tool_input.get("limit", 25),
+                compare_yoy=tool_input.get("compare_yoy", False),
+            )
+        return f"Neznámy nástroj: {name}"
+    except Exception as e:
+        return f"Nástroj {name} zlyhal: {e}"
 
 
 # --- 3. PAMÄŤ KONVERZÁCIE ------------------------------------------------------

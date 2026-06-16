@@ -7,11 +7,16 @@ __pycache__/
 .venv/
 venv/
 
+# Service account kľúče a akékoľvek lokálne JSON — TAJNÉ, nikdy do gitu
+# (projekt nemá žiadny .json, ktorý by mal byť verzovaný)
+*.json
+
 # Databáza s konverzáciami
 conversations.db
 
 # Logy bežiacich procesov
 *.log
+*.log.old
 
 # OS
 .DS_Store
