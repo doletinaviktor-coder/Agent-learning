@@ -163,11 +163,12 @@ TOOLS = [
             "zákazníkmi, v EUR; 0 = osobný odber/zadarmo).\n"
             "ZOSKUPENIE (group_by): year, month, payment (spôsob platby), "
             "delivery (doprava), status (kód objednávky), currency (mena).\n"
-            "STATUSY: 0=NOVÁ, 1=akcept.predfaktúra, 2=akcept.dobierka, 3=zrušená, "
-            "4=zaplatená (hlavný stav), 5=čaká na faktúru, 6=čaká na expedíciu, "
-            "7=expedovaná, 8=dokončená, 9=rozpracovaná, 10=zaplatená(TatraPay), "
-            "12=nedokončená, 15=nulové položky, 16=chyby. Pre REÁLNE tržby "
-            "(bez zrušených/nedokončených/chybných) daj only_valid=true.\n"
+            "STATUSY (kód=význam): 0=NOVÁ, 1=akcept.predfaktúra, 2=zrušená "
+            "(STORNO!), 3=zaplatená, 4=expedovaná (hlavný stav, ~80%), "
+            "5=dokončená, 6=rozpracovaná, 7=akcept.dobierka, 8=zaplatená(TatraPay), "
+            "9=nedokončená, 12=nulové položky, 15=chyby, 16=na ceste do skladu. "
+            "Storná = status 2. Pre REÁLNE tržby (bez storien/nedokončených/"
+            "nulových/chybných: 2,9,12,15) daj only_valid=true.\n"
             "Obdobie cez start_date/end_date ('YYYY-MM-DD'). Pre porovnanie s GA4 "
             "(návštevnosť/marketing) si vytiahni rovnaké obdobie z oboch nástrojov."
         ),
@@ -187,7 +188,7 @@ TOOLS = [
                 "start_date": {"type": "string", "description": "Začiatok 'YYYY-MM-DD'."},
                 "end_date": {"type": "string", "description": "Koniec 'YYYY-MM-DD'."},
                 "status": {"type": "integer", "description": "Voliteľný filter na konkrétny status kód."},
-                "only_valid": {"type": "boolean", "description": "Len reálne tržby — vynechá zrušené/nedokončené/chybné/NOVÉ (status 0,3,12,15,16)."},
+                "only_valid": {"type": "boolean", "description": "Len reálne tržby — vynechá storná/nedokončené/nulové/chybné (status 2,9,12,15)."},
                 "market": {"type": "string", "enum": ["SK", "CZ", "HU", "RO"], "description": "Obmedzí na trh podľa meny. SK = EUR."},
             },
             "required": ["metrics"],

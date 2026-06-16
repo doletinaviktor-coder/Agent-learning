@@ -289,28 +289,30 @@ def import_items(items_csv=ITEMS_CSV, options_csv=OPTIONS_CSV, db_path=DB_PATH,
 
 # --- flexibilný report ----------------------------------------------------------
 
-# Číselník status kódov objednávok — z BUXUS dropdownu (0-indexovaný; oddeľovač
-# "------" zaberá pozíciu 11, preto chýbajú kódy 11/13/14/17). Potvrdené dátami:
-# kód 4 = "zaplatená" tvorí 79,7 % objednávok = hlavný úspešný stav.
+# Číselník status kódov objednávok. POZOR: uložený kód NEzodpovedá pozícii v
+# BUXUS dropdowne — mapovanie je spárované podľa POČTOV objednávok z dropdownu
+# (nezvratné): expedovaná=101845→4, zrušená=14777→2, dokončená=9313→5,
+# nedokončená=1488→9, akcept.dobierka=102→7, zaplatená=43→3, TatraPay=12→8,
+# na ceste do skladu=11→16, nulové=6→12, chyby=3→15. Kódy 0/1/6 (NOVÁ/
+# predfaktúra/rozpracovaná) sú prechodné stavy, presné priradenie kolíše v čase.
 STATUS_LABELS = {
     0: "NOVÁ",
     1: "akcept. (predfaktúra)",
-    2: "akcept. (dobierka)",
-    3: "zrušená",
-    4: "zaplatená",
-    5: "čaká na faktúru",
-    6: "čaká na expedíciu",
-    7: "expedovaná",
-    8: "dokončená",
-    9: "rozpracovaná",
-    10: "zaplatená (TatraPay)",
-    12: "nedokončená",       # 12/15/16 — okrajové, na finálne potvrdenie číselníkom
-    15: "nulové položky",
-    16: "chyby v objednávke",
+    2: "zrušená",
+    3: "zaplatená",
+    4: "expedovaná",
+    5: "dokončená",
+    6: "rozpracovaná",
+    7: "akcept. (dobierka)",
+    8: "zaplatená (TatraPay)",
+    9: "nedokončená",
+    12: "nulové položky",
+    15: "chyby v objednávke",
+    16: "na ceste do skladu",
 }
-# Kódy, ktoré sa pri only_valid=True NErátajú do reálnych tržieb: zrušené,
-# nedokončené, nulové, chybné a ešte nepotvrdené NOVÉ objednávky.
-CANCELLED_STATUSES = {0, 3, 12, 15, 16}
+# Kódy, ktoré sa pri only_valid=True NErátajú do reálnych tržieb:
+# 2=zrušená, 9=nedokončená, 12=nulové položky, 15=chyby v objednávke.
+CANCELLED_STATUSES = {2, 9, 12, 15}
 
 
 def _status_label(st):
@@ -585,8 +587,9 @@ SCHEMA_DOC = (
     "KONVENCIE:\n"
     "  • Tržby VŽDY cez total_eur / line_eur (už prepočítané na EUR).\n"
     "  • Trh: SK = currency IN ('EUR','€','Sk','sk'); CZ='CZK'; HU='HUF'; RO='RON'.\n"
-    "  • Reálne objednávky = status NOT IN (0,3,12,15,16).\n"
-    "  • Statusy: 4=zaplatená(hlavný), 2=akcept.dobierka, 3=zrušená, 8=dokončená…\n"
+    "  • Reálne objednávky (bez storien) = status NOT IN (2,9,12,15).\n"
+    "  • Statusy: 2=zrušená(STORNO), 4=expedovaná(hlavný ~80%), 5=dokončená, "
+    "3=zaplatená, 7=akcept.dobierka, 9=nedokončená.\n"
     "  • Analýzu zákazníkov podľa emailu rob cez nástroj orders_customers "
     "(email v SQL nie je dostupný)."
 )
