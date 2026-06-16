@@ -15,6 +15,7 @@ Potrebné tokeny v .env:
 """
 
 import os
+import re
 from dotenv import load_dotenv
 from slack_bolt import App
 from slack_bolt.adapter.socket_mode import SocketModeHandler
@@ -23,6 +24,22 @@ load_dotenv()
 import agent  # ROVNAKÉ jadro ako pri WhatsApp — žiadna zmena
 
 app = App(token=os.environ["SLACK_BOT_TOKEN"])
+
+
+def _to_slack_mrkdwn(text: str) -> str:
+    """Poistka: skonvertuje GitHub markdown na Slack mrkdwn, keby model skĺzol.
+    Persóna mu káže písať rovno správne, toto je len záchranná sieť."""
+    # **tučné** -> *tučné*  (Slack používa jednu hviezdičku)
+    text = re.sub(r"\*\*(.+?)\*\*", r"*\1*", text)
+    # ### Nadpis -> *Nadpis*
+    text = re.sub(r"^\s*#{1,6}\s*(.+?)\s*$", r"*\1*", text, flags=re.M)
+    # zahoď oddeľovacie riadky markdown tabuľky (|---|---|)
+    text = re.sub(r"^\s*\|?[\s:|-]*-{2,}[\s:|-]*\|?\s*$\n?", "", text, flags=re.M)
+    # z dátového riadku tabuľky "| a | b |" sprav "a | b" (čitateľnejšie ako bullet)
+    text = re.sub(r"^\s*\|\s*(.+?)\s*\|\s*$",
+                  lambda m: "• " + " | ".join(c.strip() for c in m.group(1).split("|")),
+                  text, flags=re.M)
+    return text
 
 
 def _respond(event, say, client):
@@ -34,24 +51,32 @@ def _respond(event, say, client):
 
     user = event["user"]
     text = event.get("text", "")
-    print(f"[in]  {user}: {text}")
+    channel = event["channel"]
 
-    # Okamžitá spätná väzba: pošleme placeholder, nech user vidí, že bot pracuje.
-    # Zapamätáme si jeho channel + ts, aby sme ho potom prepísali odpoveďou.
-    placeholder = say("💭 Moment, pozerám sa na to…")
+    # VLÁKNO = jedna konverzácia. Koreň vlákna je thread_ts (ak sme vo vlákne),
+    # inak ts samotnej správy (= nová samostatná správa zakladá nové vlákno).
+    # Históriu kľúčujeme podľa vlákna, takže:
+    #   • nová správa = nové vlákno = ČISTÁ história (modelu pošleme len toto vlákno),
+    #   • odpoveď ide DO vlákna, takže konverzácia drží pokope.
+    # Tým držíme prompt malý a náklady pod kontrolou.
+    thread_ts = event.get("thread_ts") or event["ts"]
+    conv_id = f"slack:{channel}:{thread_ts}"
+    print(f"[in]  {conv_id} {user}: {text}")
+
+    # Placeholder posielame priamo do vlákna (thread_ts), nech vidno, že bot pracuje.
+    placeholder = say(text="💭 Moment, pozerám sa na to…", thread_ts=thread_ts)
 
     try:
-        # user_id pre DB históriu prefixujeme 'slack:' — oddelený menný priestor
-        # od WhatsApp čísel, takže pamäť sa nemieša.
-        answer = agent.reply(f"slack:{user}", text)
+        answer = agent.reply(conv_id, text)
     except Exception as e:
         answer = f"Ups, niečo sa pokazilo: {e}"
         print(f"[error] {e}")
 
-    print(f"[out] {user}: {answer}")
+    print(f"[out] {conv_id}: {answer}")
 
     # Prepíšeme placeholder finálnou odpoveďou (vyzerá, akoby sa "premyslel").
-    client.chat_update(channel=placeholder["channel"], ts=placeholder["ts"], text=answer)
+    client.chat_update(channel=placeholder["channel"], ts=placeholder["ts"],
+                       text=_to_slack_mrkdwn(answer))
 
 
 @app.event("message")

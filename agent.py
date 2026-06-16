@@ -27,14 +27,23 @@ MODEL = os.environ.get("AGENT_MODEL", "claude-sonnet-4-6")
 # --- 1. OSOBNOSŤ AGENTA -------------------------------------------------------
 # System prompt definuje, KTO agent je a AKO sa správa. Je to to isté ako
 # "Kto je Jožko" — len kratšie. Knowledge (vedomosti) pridávame zvlášť nižšie.
-PERSONA = """Si osobný asistent Viktora. Bežíš cez WhatsApp.
+PERSONA = """Si osobný asistent Viktora. Bežíš ako bot v Slacku.
 
 Ako sa správaš:
 - Hovoríš po slovensky (prepni do EN, ak ti Viktor píše po anglicky).
 - Priamo a vecne. Žiadny corporate fluff, žiadne "rád ti pomôžem".
-- Stručne — WhatsApp správa, nie esej. Ak treba viac, najprv ponúkni rozvedenie.
+- Stručne — chatová správa, nie esej. Ak treba viac, najprv ponúkni rozvedenie.
 - Úprimne: ak niečo nevieš alebo si nie si istý, povedz to. Nikdy si nevymýšľaj fakty.
 - Proaktívne: ak vidíš užitočný ďalší krok, navrhni ho v jednej vete.
+
+FORMÁTOVANIE (Slack mrkdwn — NIE GitHub markdown!):
+- Tučné píš JEDNOU hviezdičkou: *takto*. NIKDY nie **takto** (Slack to nevie).
+- NIKDY nepoužívaj markdown tabuľky (riadky s `|` a `---`) — Slack ich zobrazí
+  ako škaredý čistý text. Namiesto tabuľky použi odrážky alebo riadky
+  "Popis: hodnota". Na porovnania (napr. 2025 vs 2026) daj jednu odrážku na
+  položku s hodnotami v zátvorke.
+- Žiadne `#` nadpisy ani `---` oddeľovače. Odrážky cez "•" alebo "-". Emoji OK.
+- Kurzíva _takto_, kód `takto`.
 
 Info o Viktorovi a jeho kontexte máš v sekcii nižšie — čerpaj z neho, keď sa pýta
 na seba alebo svoje projekty."""
@@ -268,6 +277,13 @@ TOOLS = [
     },
 ]
 
+# PROMPT CACHING — nástroje. Cache je prefixová (hierarchia: nástroje → system →
+# messages). Breakpoint na poslednom nástroji nacachuje CELÝ blok nástrojov.
+# Spolu s cache na knowledge blok (v _build_system) tak cachujeme stabilnú časť
+# promptu — nástroje + persona + knowledge. Pri ďalších volaniach (aj v rámci
+# tool-slučky) za túto časť platíš ~10 % ceny namiesto plnej. Cache žije ~5 min.
+TOOLS[-1]["cache_control"] = {"type": "ephemeral"}
+
 
 def _run_tool(name: str, tool_input: dict) -> str:
     """Vykoná nástroj podľa mena a vráti výsledok ako text.
@@ -346,6 +362,20 @@ def reply(user_id: str, user_text: str) -> str:
     #    ale do DB ukladáme len finálnu text odpoveď (tool round-trip je efemérny).
     messages = db.get_history(user_id, MAX_HISTORY)
 
+    # PROMPT CACHING — história vlákna. Breakpoint na poslednej (aktuálnej)
+    # správe nacachuje celý doterajší prefix (nástroje + system + história).
+    # Ďalšia správa v tom istom vlákne tak za históriu zaplatí len ~10 %.
+    # (db vracia obsah ako čistý text → spravíme z neho text-blok s cache_control.)
+    if messages and isinstance(messages[-1].get("content"), str):
+        messages[-1] = {
+            "role": messages[-1]["role"],
+            "content": [{
+                "type": "text",
+                "text": messages[-1]["content"],
+                "cache_control": {"type": "ephemeral"},
+            }],
+        }
+
     # 3. AGENTICKÁ SLUČKA. Voláme Claude dovtedy, kým nás žiada o nástroj.
     while True:
         response = client.messages.create(
@@ -355,6 +385,15 @@ def reply(user_id: str, user_text: str) -> str:
             tools=TOOLS,              # <-- sprístupníme agentovi nástroje
             messages=messages,
         )
+
+        # Diagnostika cache: cache_write = koľko sa práve uložilo do cache (plná
+        # cena +25%), cache_read = koľko sa prečítalo z cache (~10% ceny). Pri
+        # druhom a ďalšom volaní by malo cache_read výrazne stúpnuť.
+        u = response.usage
+        print(f"[usage] vstup={u.input_tokens} "
+              f"cache_write={getattr(u, 'cache_creation_input_tokens', 0)} "
+              f"cache_read={getattr(u, 'cache_read_input_tokens', 0)} "
+              f"výstup={u.output_tokens}")
 
         # Ak Claude NEchce nástroj (bežná odpoveď), vyskočíme zo slučky.
         if response.stop_reason != "tool_use":
