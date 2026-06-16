@@ -11,8 +11,9 @@ from datetime import datetime
 from dotenv import load_dotenv
 from anthropic import Anthropic
 
-import db   # perzistentná pamäť konverzácie (SQLite)
-import ga4  # Google Analytics 4 Data API
+import db       # perzistentná pamäť konverzácie (SQLite)
+import ga4      # Google Analytics 4 Data API
+import orders   # objednávky z CMS (BUXUS) — SQLite report
 
 load_dotenv()  # načíta premenné z .env súboru
 db.init_db()   # pripraví databázu (vytvorí tabuľku, ak treba)
@@ -147,6 +148,122 @@ TOOLS = [
             "required": ["metrics"],
         },
     },
+    {
+        "name": "orders_report",
+        "description": (
+            "Report nad REÁLNYMI objednávkami z CMS klienta Prodoshop (BUXUS "
+            "export, roky 2007–2026). Tržby sú v EUR, normalizované z viacerých "
+            "mien (EUR/CZK/HUF/RON/Sk). Eshop predáva do SK/CZ/HU/RO.\n\n"
+            "TRH (market): SK/CZ/HU/RO obmedzí na daný trh podľa meny. SK = EUR. "
+            "Pri cross-source s GA4 použi správnu property: SK=273129016, "
+            "HU=333370282, CZ=333388671, RO=338899233.\n\n"
+            "METRIKY: orders (počet objednávok), revenue (tržby v EUR), "
+            "aov (priemerná hodnota objednávky), customers (počet unikátnych "
+            "zákazníkov podľa emailu).\n"
+            "ZOSKUPENIE (group_by): year, month, payment (spôsob platby), "
+            "delivery (doprava), status (kód objednávky), currency (mena).\n"
+            "STATUSY: 0=NOVÁ, 1=akcept.predfaktúra, 2=akcept.dobierka, 3=zrušená, "
+            "4=zaplatená (hlavný stav), 5=čaká na faktúru, 6=čaká na expedíciu, "
+            "7=expedovaná, 8=dokončená, 9=rozpracovaná, 10=zaplatená(TatraPay), "
+            "12=nedokončená, 15=nulové položky, 16=chyby. Pre REÁLNE tržby "
+            "(bez zrušených/nedokončených/chybných) daj only_valid=true.\n"
+            "Obdobie cez start_date/end_date ('YYYY-MM-DD'). Pre porovnanie s GA4 "
+            "(návštevnosť/marketing) si vytiahni rovnaké obdobie z oboch nástrojov."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "metrics": {
+                    "type": "array",
+                    "items": {"type": "string", "enum": ["orders", "revenue", "aov", "customers"]},
+                    "description": "Metriky, napr. ['orders','revenue'].",
+                },
+                "group_by": {
+                    "type": "string",
+                    "enum": ["year", "month", "payment", "delivery", "status", "currency"],
+                    "description": "Voliteľné zoskupenie.",
+                },
+                "start_date": {"type": "string", "description": "Začiatok 'YYYY-MM-DD'."},
+                "end_date": {"type": "string", "description": "Koniec 'YYYY-MM-DD'."},
+                "status": {"type": "integer", "description": "Voliteľný filter na konkrétny status kód."},
+                "only_valid": {"type": "boolean", "description": "Len reálne tržby — vynechá zrušené/nedokončené/chybné/NOVÉ (status 0,3,12,15,16)."},
+                "market": {"type": "string", "enum": ["SK", "CZ", "HU", "RO"], "description": "Obmedzí na trh podľa meny. SK = EUR."},
+            },
+            "required": ["metrics"],
+        },
+    },
+    {
+        "name": "products_report",
+        "description": (
+            "Najpredávanejšie produkty z reálnych objednávok (BUXUS). Spája "
+            "položky objednávok s objednávkami, zoskupuje podľa produktu.\n\n"
+            "METRIKY: revenue (tržby v EUR), quantity (predané kusy), orders "
+            "(v koľkých objednávkach sa produkt vyskytol).\n"
+            "sort_by = podľa čoho zoradiť (revenue/quantity/orders), default revenue. "
+            "limit = koľko top produktov (default 20). Obdobie cez start_date/end_date."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "metrics": {
+                    "type": "array",
+                    "items": {"type": "string", "enum": ["revenue", "quantity", "orders"]},
+                    "description": "Metriky, default ['revenue','quantity'].",
+                },
+                "sort_by": {
+                    "type": "string",
+                    "enum": ["revenue", "quantity", "orders"],
+                    "description": "Podľa čoho zoradiť. Default revenue.",
+                },
+                "start_date": {"type": "string", "description": "Začiatok 'YYYY-MM-DD'."},
+                "end_date": {"type": "string", "description": "Koniec 'YYYY-MM-DD'."},
+                "status": {"type": "integer", "description": "Voliteľný filter na status kód."},
+                "only_valid": {"type": "boolean", "description": "Len reálne objednávky (bez zrušených/nedokončených/chybných)."},
+                "market": {"type": "string", "enum": ["SK", "CZ", "HU", "RO"], "description": "Obmedzí na trh podľa meny. SK = EUR."},
+                "limit": {"type": "integer", "description": "Počet top produktov. Default 20."},
+            },
+            "required": [],
+        },
+    },
+    {
+        "name": "orders_customers",
+        "description": (
+            "Analýza zákazníkov z reálnych objednávok: noví vs vracajúci sa, "
+            "miera návratnosti, priemerný počet objednávok na zákazníka, CLV "
+            "(priemerná tržba na zákazníka) a podiel tržieb od vracajúcich sa. "
+            "Identita zákazníka = email (rieši aj hosťovské objednávky bez konta). "
+            "Vracia LEN agregáty — žiadne konkrétne emaily. Obdobie cez start_date/end_date."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "start_date": {"type": "string", "description": "Začiatok 'YYYY-MM-DD'."},
+                "end_date": {"type": "string", "description": "Koniec 'YYYY-MM-DD'."},
+                "status": {"type": "integer", "description": "Voliteľný filter na status kód."},
+                "only_valid": {"type": "boolean", "description": "Len reálne objednávky (bez zrušených/nedokončených/chybných)."},
+                "market": {"type": "string", "enum": ["SK", "CZ", "HU", "RO"], "description": "Obmedzí na trh podľa meny. SK = EUR."},
+            },
+            "required": [],
+        },
+    },
+    {
+        "name": "orders_query",
+        "description": (
+            "BACKUP nástroj: spustí ľubovoľný read-only SQL (SELECT) nad databázou "
+            "objednávok, keď orders_report/products_report/orders_customers nestačia "
+            "(napr. dva rozpady naraz, vlastné výpočty, neobvyklé filtre). Najprv "
+            "skús skratky; sem siahni len keď treba niečo, čo nevedia.\n\n"
+            + orders.SCHEMA_DOC +
+            "\nLen SELECT, jeden príkaz, bez zápisu a bez osobných údajov."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "sql": {"type": "string", "description": "SELECT dotaz nad views 'o' (objednávky) a 'oi' (položky)."},
+            },
+            "required": ["sql"],
+        },
+    },
 ]
 
 
@@ -172,6 +289,37 @@ def _run_tool(name: str, tool_input: dict) -> str:
                 limit=tool_input.get("limit", 25),
                 compare_yoy=tool_input.get("compare_yoy", False),
             )
+        if name == "orders_report":
+            return orders.run_report(
+                metrics=tool_input.get("metrics", []),
+                group_by=tool_input.get("group_by"),
+                start_date=tool_input.get("start_date"),
+                end_date=tool_input.get("end_date"),
+                status=tool_input.get("status"),
+                only_valid=tool_input.get("only_valid", False),
+                market=tool_input.get("market"),
+            )
+        if name == "products_report":
+            return orders.products_report(
+                metrics=tool_input.get("metrics"),
+                sort_by=tool_input.get("sort_by", "revenue"),
+                start_date=tool_input.get("start_date"),
+                end_date=tool_input.get("end_date"),
+                status=tool_input.get("status"),
+                only_valid=tool_input.get("only_valid", False),
+                market=tool_input.get("market"),
+                limit=tool_input.get("limit", 20),
+            )
+        if name == "orders_customers":
+            return orders.customer_report(
+                start_date=tool_input.get("start_date"),
+                end_date=tool_input.get("end_date"),
+                only_valid=tool_input.get("only_valid", False),
+                market=tool_input.get("market"),
+                status=tool_input.get("status"),
+            )
+        if name == "orders_query":
+            return orders.query(tool_input.get("sql", ""))
         return f"Neznámy nástroj: {name}"
     except Exception as e:
         return f"Nástroj {name} zlyhal: {e}"

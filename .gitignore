@@ -11,8 +11,12 @@ venv/
 # (projekt nemá žiadny .json, ktorý by mal byť verzovaný)
 *.json
 
-# Databáza s konverzáciami
-conversations.db
+# Dáta klientov (objednávky, exporty) — môžu obsahovať osobné údaje, nikdy do gitu
+*.csv
+data/
+
+# Databázy (konverzácie + objednávky z CMS — orders.db obsahuje dáta klienta)
+*.db
 
 # Logy bežiacich procesov
 *.log
