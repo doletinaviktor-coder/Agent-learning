@@ -159,7 +159,8 @@ TOOLS = [
             "HU=333370282, CZ=333388671, RO=338899233.\n\n"
             "METRIKY: orders (počet objednávok), revenue (tržby v EUR), "
             "aov (priemerná hodnota objednávky), customers (počet unikátnych "
-            "zákazníkov podľa emailu).\n"
+            "zákazníkov podľa emailu), shipping (poplatky za dopravu zaplatené "
+            "zákazníkmi, v EUR; 0 = osobný odber/zadarmo).\n"
             "ZOSKUPENIE (group_by): year, month, payment (spôsob platby), "
             "delivery (doprava), status (kód objednávky), currency (mena).\n"
             "STATUSY: 0=NOVÁ, 1=akcept.predfaktúra, 2=akcept.dobierka, 3=zrušená, "
@@ -175,8 +176,8 @@ TOOLS = [
             "properties": {
                 "metrics": {
                     "type": "array",
-                    "items": {"type": "string", "enum": ["orders", "revenue", "aov", "customers"]},
-                    "description": "Metriky, napr. ['orders','revenue'].",
+                    "items": {"type": "string", "enum": ["orders", "revenue", "aov", "customers", "shipping"]},
+                    "description": "Metriky, napr. ['orders','revenue','shipping'].",
                 },
                 "group_by": {
                     "type": "string",

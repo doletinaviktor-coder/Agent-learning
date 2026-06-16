@@ -60,6 +60,7 @@ COL_PAYMENT = 5      # spôsob platby
 COL_DELIVERY = 8     # spôsob dopravy
 COL_TOTAL = 9        # suma objednávky (v mene podľa COL_CURRENCY)
 COL_EMAIL = 22       # email zákazníka (identita pre opakované nákupy)
+COL_SHIPPING = 30    # poplatok za dopravu (v mene objednávky; 0 = osobný odber/zadarmo)
 COL_CURRENCY = 29    # mena (EUR / Sk / € / sk)
 COL_FLAG = 32        # T/F flag
 COL_STATUS = 33      # status kód (0–9)
@@ -116,6 +117,8 @@ def import_csv(csv_path=ORDERS_CSV, db_path=DB_PATH, rebuild=True) -> str:
             currency      TEXT,
             total_raw     REAL,
             total_eur     REAL,
+            shipping_raw  REAL,      -- poplatok za dopravu (v mene objednávky)
+            shipping_eur  REAL,      -- doprava normalizovaná na EUR
             status        INTEGER,
             flag          TEXT
         )
@@ -142,6 +145,7 @@ def import_csv(csv_path=ORDERS_CSV, db_path=DB_PATH, rebuild=True) -> str:
             email = _cell(row, COL_EMAIL).lower()
             currency = _cell(row, COL_CURRENCY)
             total_raw = _cell(row, COL_TOTAL)
+            shipping_raw = _cell(row, COL_SHIPPING)
             status = _cell(row, COL_STATUS)
 
             batch.append((
@@ -159,15 +163,17 @@ def import_csv(csv_path=ORDERS_CSV, db_path=DB_PATH, rebuild=True) -> str:
                 currency,
                 float(total_raw) if _is_num(total_raw) else 0.0,
                 _to_eur(total_raw, currency),
+                float(shipping_raw) if _is_num(shipping_raw) else 0.0,
+                _to_eur(shipping_raw, currency),
                 int(status) if status.lstrip("-").isdigit() else None,
                 _cell(row, COL_FLAG),
             ))
             n += 1
             if len(batch) >= 5000:
-                c.executemany("INSERT OR REPLACE INTO orders VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", batch)
+                c.executemany("INSERT OR REPLACE INTO orders VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", batch)
                 batch = []
         if batch:
-            c.executemany("INSERT OR REPLACE INTO orders VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", batch)
+            c.executemany("INSERT OR REPLACE INTO orders VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", batch)
 
     c.execute("CREATE INDEX IF NOT EXISTS idx_order_date ON orders(order_date)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_year ON orders(year)")
@@ -179,7 +185,7 @@ def import_csv(csv_path=ORDERS_CSV, db_path=DB_PATH, rebuild=True) -> str:
         CREATE VIEW o AS SELECT
             id, order_number, created_at, order_date, year, month,
             customer_id, payment, delivery, currency, total_raw, total_eur,
-            status, flag
+            shipping_raw, shipping_eur, status, flag
         FROM orders
     """)
     conn.commit()
@@ -332,6 +338,7 @@ _METRICS = {
     "revenue": "SUM(total_eur)",
     "aov": "AVG(total_eur)",
     "customers": "COUNT(DISTINCT customer_key)",
+    "shipping": "SUM(shipping_eur)",   # poplatky za dopravu (od zákazníkov), v EUR
 }
 # Povolené zoskupenia -> SQL stĺpec.
 _GROUPS = {
@@ -571,7 +578,8 @@ SCHEMA_DOC = (
     "TABUĽKY (views) pre SQL:\n"
     "  o  = objednávky: id, order_number, created_at, order_date('YYYY-MM-DD'), "
     "year, month('YYYY-MM'), customer_id, payment, delivery, currency, "
-    "total_raw, total_eur, status, flag\n"
+    "total_raw, total_eur, shipping_raw, shipping_eur (poplatok za dopravu v EUR), "
+    "status, flag\n"
     "  oi = položky: item_id, order_id(→o.id), product_id, product_name, qty, "
     "unit_price, line_eur\n"
     "KONVENCIE:\n"
